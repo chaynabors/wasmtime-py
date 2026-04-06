@@ -12,7 +12,7 @@ from pathlib import Path
 
 # set to "dev" to download the latest or pick a tag from
 # https://github.com/chaynabors/wasmtime/tags
-WASMTIME_VERSION = "v44.0.0-wasi-http"
+WASMTIME_VERSION = "v45.0.0-async"
 
 
 def main(platform, arch):
