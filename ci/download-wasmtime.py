@@ -12,7 +12,7 @@ from pathlib import Path
 
 # set to "dev" to download the latest or pick a tag from
 # https://github.com/bytecodealliance/wasmtime/tags
-WASMTIME_VERSION = "v44.0.0"
+WASMTIME_VERSION = "v44.0.3"
 
 
 def main(platform, arch):
@@ -46,7 +46,7 @@ def main(platform, arch):
     else:
         raise RuntimeError("unknown platform: " + sys.platform)
 
-    url = 'https://github.com/bytecodealliance/wasmtime/releases/download/{}/'.format(version)
+    url = 'https://github.com/pgrayy/wasm-deps/releases/download/{}/'.format(version)
     url += filename
     print('Download', url)
     dst = Path('wasmtime') / dirname / libname

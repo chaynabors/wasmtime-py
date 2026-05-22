@@ -60,14 +60,11 @@ from __future__ import annotations
 from typing import Any, Optional, Union
 
 from wasmtime.component import Variant as _WitVariant
+from wasmtime.component import VariantCase as _WitVariantCase
 
 
 def ok(value: Any = None) -> _WitVariant:
-    """Wrap ``value`` as the ``ok`` arm of a ``result<T, E>``.
-
-    Always tagged on the wire because both arms can carry payloads — pass the
-    bare ``value`` and this function lifts it into the right ``Variant``.
-    """
+    """Wrap ``value`` as the ``ok`` arm of a ``result<T, E>``."""
     return _WitVariant("ok", value)
 
 
@@ -313,52 +310,45 @@ def _format_docstring(text: str) -> str:
 # --- Variant emission --------------------------------------------------
 
 def _emit_variant(t: Type, ir: Resolve, ctx: _tagging.TaggingCtx, out: io.StringIO) -> None:
-    """Emit a variant as a namespace of factory functions, one per arm.
-
-    Tagged variants:  ``MyVariant.arm(payload)`` returns ``Variant("arm", payload)``.
-    Untagged:        ``MyVariant.arm(payload)`` returns the bare payload, and
-                     ``MyVariant.unit_arm()`` returns ``None``.
-
-    Either way the user picks the arm by calling the right factory; the
-    returned value is what wasmtime-py expects on the wire.
-    """
+    """Emit a container class with one ``VariantCase`` arm subclass per case."""
     assert isinstance(t.kind, Variant)
     name = _type_name(t, ir)
     cases = t.kind.cases
     tagged = _tagging.variant_is_tagged(_ir.TypeRef(type_id=t.id), ctx)
+    docs = (t.docs or "").strip()
+
+    if not tagged:
+        arm_types = ["None" if c.ty is None else _type_annotation(c.ty, ir) for c in cases]
+        union = " | ".join(arm_types) if arm_types else "Any"
+        out.write(f"\n{name} = {union}\n")
+        if docs:
+            out.write(f'"""{_format_docstring(docs)}"""\n')
+        return
 
     out.write(f"\nclass {name}:\n")
-    docs = (t.docs or "").strip()
     if docs:
         out.write(f'    """{_format_docstring(docs)}"""\n')
-    note = (
-        "Tagged variant: each arm wraps in ``Variant(tag, payload)``."
-        if tagged
-        else "Untagged variant: each arm returns its bare payload (or ``None`` for unit arms)."
-    )
-    out.write(f"    # {note}\n\n")
+    out.write("    pass\n")
 
+    arm_pairs: list[tuple[str, str]] = []
     for case in cases:
-        ident = _ident(case.name)
-        if case.ty is None:
-            out.write(f"    @staticmethod\n")
-            out.write(f"    def {ident}() -> Any:\n")
-            if case.docs:
-                out.write(f'        """{_format_docstring(case.docs)}"""\n')
-            if tagged:
-                out.write(f"        return _WitVariant({case.name!r})\n\n")
-            else:
-                out.write(f"        return None\n\n")
-        else:
-            ann = _type_annotation(case.ty, ir)
-            out.write(f"    @staticmethod\n")
-            out.write(f"    def {ident}(value: {ann}) -> Any:\n")
-            if case.docs:
-                out.write(f'        """{_format_docstring(case.docs)}"""\n')
-            if tagged:
-                out.write(f"        return _WitVariant({case.name!r}, value)\n\n")
-            else:
-                out.write(f"        return value\n\n")
+        arm_name = f"{name}_{_pascal(case.name)}"
+        arm_pairs.append((case.name, arm_name))
+        out.write(f"\nclass {arm_name}({name}, _WitVariantCase):\n")
+        if case.docs:
+            out.write(f'    """{_format_docstring(case.docs)}"""\n')
+        out.write(f"    tag = {case.name!r}\n")
+
+    out.write(f"\n_{name}_CASES: dict[str, type] = {{\n")
+    for tag, cls in arm_pairs:
+        out.write(f"    {tag!r}: {cls},\n")
+    out.write("}\n")
+    out.write(f"\ndef _{_snake(name)}_lift(raw: _WitVariant) -> {name}:\n")
+    out.write(f"    cls = _{name}_CASES.get(raw.tag)\n")
+    out.write(f"    if cls is None:\n")
+    out.write(f"        raise ValueError(f'unknown {name} arm: {{raw.tag!r}}')\n")
+    out.write(f"    return cls(raw.payload)\n")
+    out.write(f"{name}.lift = staticmethod(_{_snake(name)}_lift)  # type: ignore[attr-defined]\n")
 
 
 # --- Flags / Tuples ----------------------------------------------------
